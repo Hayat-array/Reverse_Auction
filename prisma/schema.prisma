@@ -1,0 +1,152 @@
+// Prisma Schema for British Auction in RFQ System
+// Database Provider: MySQL for ACID Consistency and Transactions
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  BUYER
+  SUPPLIER
+  ADMIN
+}
+
+enum AuctionStatus {
+  ACTIVE
+  CLOSED
+  FORCE_CLOSED
+}
+
+enum ExtensionTrigger {
+  BID_RECEIVED
+  RANK_CHANGE
+  L1_CHANGE
+}
+
+model User {
+  id          String   @id @default(uuid())
+  name        String
+  email       String   @unique
+  role        Role     @default(SUPPLIER)
+  companyName String?
+  carrierCode String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  rfqs        RFQ[]         @relation("CreatedRFQs")
+  bids        Bid[]
+  activities  ActivityLog[]
+
+  @@map("users")
+}
+
+model Supplier {
+  id        String   @id @default(uuid())
+  name      String
+  email     String   @unique
+  company   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("suppliers")
+}
+
+model RFQ {
+  id            String    @id @default(uuid())
+  referenceId   String    @unique
+  name          String
+  pickupDate    DateTime
+  serviceDate   DateTime?
+  commodity     String?
+  originPort    String?
+  originCountry String?
+  destPort      String?
+  destCountry   String?
+  mode          String?   @default("OCEAN_FCL")
+  containerType String?   @default("40ft High Cube (40HC)")
+  quantity      Int?      @default(1)
+  targetPrice   Decimal?  @db.Decimal(12, 2)
+  createdBy     String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  creator       User      @relation("CreatedRFQs", fields: [createdBy], references: [id])
+  auction       Auction?
+
+  @@index([createdBy])
+  @@map("rfqs")
+}
+
+model Auction {
+  id                       String           @id @default(uuid())
+  rfqId                    String           @unique
+  title                    String
+  bidStartTime             DateTime
+  bidCloseTime             DateTime
+  forcedCloseTime          DateTime
+  triggerWindowMinutes     Int              @default(10)
+  extensionDurationMinutes Int              @default(5)
+  extensionTrigger         ExtensionTrigger @default(BID_RECEIVED)
+  status                   AuctionStatus    @default(ACTIVE)
+  version                  Int              @default(1)
+  createdAt                DateTime         @default(now())
+  updatedAt                DateTime         @updatedAt
+
+  rfq                      RFQ              @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  bids                     Bid[]
+  activityLogs             ActivityLog[]
+
+  @@index([status])
+  @@index([bidCloseTime])
+  @@index([forcedCloseTime])
+  @@map("auctions")
+}
+
+model Bid {
+  id                 String   @id @default(uuid())
+  auctionId          String
+  supplierId         String
+  carrierName        String
+  freightCharges     Decimal  @db.Decimal(12, 2)
+  originCharges      Decimal  @default(0.00) @db.Decimal(12, 2)
+  destinationCharges Decimal  @default(0.00) @db.Decimal(12, 2)
+  transitTime        Int      @default(15)
+  quoteValidity      DateTime
+  totalPrice         Decimal  @db.Decimal(12, 2)
+  createdAt          DateTime @default(now())
+
+  auction            Auction  @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+  supplier           User     @relation(fields: [supplierId], references: [id])
+
+  @@index([auctionId])
+  @@index([supplierId])
+  @@index([totalPrice])
+  @@index([createdAt])
+  @@index([auctionId, totalPrice])
+  @@map("bids")
+}
+
+model ActivityLog {
+  id           String    @id @default(uuid())
+  auctionId    String
+  eventType    String
+  description  String    @db.Text
+  supplierId   String?
+  bidId        String?
+  oldCloseTime DateTime?
+  newCloseTime DateTime?
+  createdAt    DateTime  @default(now())
+
+  auction      Auction   @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+  supplier     User?     @relation(fields: [supplierId], references: [id])
+
+  @@index([auctionId])
+  @@index([supplierId])
+  @@index([createdAt])
+  @@map("activity_logs")
+}
